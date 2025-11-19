@@ -1,82 +1,103 @@
 using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Threading.Tasks;
 
-namespace LabWork16
+namespace LabWork16_Refactored
 {
     // ============================================================
-    // 1. TARGET INTERFACE (Цільовий інтерфейс)
-    // Це інтерфейс, який очікує клієнтський код нашої нової системи.
+    // 1. ТИПИ ДАНИХ (Enums)
+    // Використання Enum замість string запобігає помилкам регістру
+    // та нормалізує роботу з мовами.
+    // ============================================================
+    public enum LanguageCode
+    {
+        English,
+        Spanish,
+        French,
+        German,
+        Unsupported // Для тестів
+    }
+
+    // ============================================================
+    // 2. TARGET INTERFACE (Цільовий інтерфейс)
+    // Оновлено до асинхронної версії.
     // ============================================================
     public interface ITranslator
     {
-        string Translate(string text, string sourceLanguage, string targetLanguage);
+        /// <summary>
+        /// Асинхронно перекладає текст.
+        /// </summary>
+        /// <exception cref="NotSupportedException">Якщо пара мов не підтримується.</exception>
+        Task<string> TranslateAsync(string text, LanguageCode source, LanguageCode target);
     }
 
     // ============================================================
-    // 2. ADAPTEE (Адаптуємий клас - Стара система)
-    // Це старий сервіс або стороння бібліотека, яка має інший інтерфейс.
-    // Наприклад, вона підтримує лише конкретну пару мов і має іншу назву методу.
+    // 3. ADAPTEE (Адаптуємий клас - Legacy)
+    // Виділили інтерфейс для можливості Mock-тестування
     // ============================================================
-    public class LegacyTranslationService
+    public interface ILegacyService
     {
-        // Старий метод, який вміє перекладати лише з Англійської на Іспанську
+        string TranslateEnglishToSpanish(string text);
+        string TranslateEnglishToFrench(string text);
+    }
+
+    public class LegacyTranslationService : ILegacyService
+    {
+        // Метод більше нічого не пише в консоль, тільки повертає результат.
         public string TranslateEnglishToSpanish(string text)
         {
-            Console.WriteLine("   [LegacyService] Processing translation...");
-            // Проста імітація перекладу для демонстрації
-            if (text == "Hello") return "Hola";
-            if (text == "World") return "Mundo";
-            return $"[Translated to Spanish: {text}]";
+            // Імітація логіки перекладу
+            if (text.Equals("Hello", StringComparison.OrdinalIgnoreCase)) return "Hola";
+            if (text.Equals("World", StringComparison.OrdinalIgnoreCase)) return "Mundo";
+            return $"[ES: {text}]";
         }
 
-        // Інший метод для французької
         public string TranslateEnglishToFrench(string text)
         {
-             Console.WriteLine("   [LegacyService] Processing translation...");
-             if (text == "Hello") return "Bonjour";
-             return $"[Translated to French: {text}]";
+            if (text.Equals("Hello", StringComparison.OrdinalIgnoreCase)) return "Bonjour";
+            return $"[FR: {text}]";
         }
     }
 
     // ============================================================
-    // 3. ADAPTER (Адаптер)
-    // Цей клас реалізує цільовий інтерфейс ITranslator і всередині
-    // використовує об'єкт LegacyTranslationService.
+    // 4. ADAPTER (Адаптер)
     // ============================================================
     public class TranslationAdapter : ITranslator
     {
-        private readonly LegacyTranslationService _legacyService;
+        private readonly ILegacyService _legacyService;
 
-        public TranslationAdapter(LegacyTranslationService legacyService)
+        public TranslationAdapter(ILegacyService legacyService)
         {
             _legacyService = legacyService;
         }
 
-        public string Translate(string text, string sourceLanguage, string targetLanguage)
+        public async Task<string> TranslateAsync(string text, LanguageCode source, LanguageCode target)
         {
-            // Адаптація викликів:
-            // Якщо запит відповідає можливостям старого сервісу, викликаємо його методи.
-            
-            if (sourceLanguage.ToLower() == "en" && targetLanguage.ToLower() == "es")
+            // Емуляція асинхронної роботи (запит до мережі/API)
+            // Це робить "real-time" більш правдоподібним
+            await Task.Delay(500); 
+
+            // Логіка адаптації
+            if (source == LanguageCode.English)
             {
-                return _legacyService.TranslateEnglishToSpanish(text);
+                if (target == LanguageCode.Spanish)
+                {
+                    return _legacyService.TranslateEnglishToSpanish(text);
+                }
+                
+                if (target == LanguageCode.French)
+                {
+                    return _legacyService.TranslateEnglishToFrench(text);
+                }
             }
-            else if (sourceLanguage.ToLower() == "en" && targetLanguage.ToLower() == "fr")
-            {
-                return _legacyService.TranslateEnglishToFrench(text);
-            }
-            else
-            {
-                // Якщо стара система не підтримує таку пару, можна кинути помилку або повернути заглушку
-                return $"Error: Legacy service does not support translation from {sourceLanguage} to {targetLanguage}.";
-            }
+
+            // Правильна обробка помилок через Exception
+            throw new NotSupportedException($"Переклад з {source} на {target} наразі не підтримується старою системою.");
         }
     }
 
     // ============================================================
-    // 4. CLIENT (Клієнт)
-    // Клас, який використовує інтерфейс ITranslator
+    // 5. CLIENT (Клієнт)
+    // Відповідає за UI (Console.WriteLine) та обробку помилок
     // ============================================================
     public class ChatApplication
     {
@@ -87,11 +108,30 @@ namespace LabWork16
             _translator = translator;
         }
 
-        public void ShowMessage(string user, string text, string langFrom, string langTo)
+        public async Task ShowMessageAsync(string user, string text, LanguageCode langFrom, LanguageCode langTo)
         {
-            Console.WriteLine($"\nUser '{user}' says: \"{text}\"");
-            string translated = _translator.Translate(text, langFrom, langTo);
-            Console.WriteLine($" > Переклад ({langTo}): \"{translated}\"");
+            Console.WriteLine($"User '{user}': \"{text}\"");
+            Console.Write(" -> Переклад... "); // Індикація процесу
+
+            try
+            {
+                string translated = await _translator.TranslateAsync(text, langFrom, langTo);
+                
+                // Перезаписуємо рядок статусу результатом
+                Console.WriteLine($"Done: \"{translated}\"");
+            }
+            catch (NotSupportedException ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Помилка: {ex.Message}");
+                Console.ResetColor();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Невідома помилка: {ex.Message}");
+            }
+            
+            Console.WriteLine(new string('-', 30));
         }
     }
 
@@ -100,31 +140,27 @@ namespace LabWork16
     // ============================================================
     class Program
     {
-        static void Main(string[] args)
+        // Main тепер теж async Task
+        static async Task Main(string[] args)
         {
-            Console.OutputEncoding = Encoding.UTF8;
-            Console.WriteLine("Патерн Адаптер: Перекладач у реальному часі\n");
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            Console.WriteLine("Патерн Адаптер (Refactored): Async & Error Handling\n");
 
-            // 1. Створюємо старий сервіс (Adaptee)
-            LegacyTranslationService oldService = new LegacyTranslationService();
-
-            // 2. Створюємо адаптер, який "обгортає" старий сервіс
-            ITranslator adapter = new TranslationAdapter(oldService);
-
-            // 3. Створюємо клієнтський додаток, передаючи йому адаптер
-            // Клієнт думає, що працює з сучасним інтерфейсом ITranslator
+            // 1. Setup (Dependency Injection)
+            ILegacyService legacyService = new LegacyTranslationService();
+            ITranslator adapter = new TranslationAdapter(legacyService);
             ChatApplication chatApp = new ChatApplication(adapter);
 
-            // 4. Демонстрація роботи
-            chatApp.ShowMessage("John", "Hello", "en", "es");
-            chatApp.ShowMessage("Alice", "World", "en", "es");
-            
-            chatApp.ShowMessage("Bob", "Hello", "en", "fr");
+            // 2. Успішні кейси
+            await chatApp.ShowMessageAsync("John", "Hello", LanguageCode.English, LanguageCode.Spanish);
+            await chatApp.ShowMessage("Alice", "World", LanguageCode.English, LanguageCode.Spanish);
+            await chatApp.ShowMessage("Bob", "Hello", LanguageCode.English, LanguageCode.French);
 
-            // Спроба непідтримуваного перекладу
-            chatApp.ShowMessage("Admin", "Test", "en", "de");
+            // 3. Кейс з помилкою (Exception Handling)
+            // Спроба перекладу на німецьку, яку легасі-код не знає
+            await chatApp.ShowMessageAsync("Admin", "Critical Error", LanguageCode.English, LanguageCode.German);
 
-            Console.WriteLine("\nНатисніть Enter для завершення...");
+            Console.WriteLine("\nРоботу завершено.");
             Console.ReadLine();
         }
     }
